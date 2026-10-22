@@ -11,6 +11,13 @@ const Statistics = () => {
   const [powerCupPlayers, setPowerCupPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
 
+
+const podiumColors = [
+  'bg-yellow-400 text-yellow-900 dark:bg-yellow-700 dark:text-yellow-100',
+  'bg-slate-300 text-slate-900 dark:bg-slate-700 dark:text-slate-100',
+  'bg-orange-400 text-orange-900 dark:bg-orange-700 dark:text-orange-100',
+];
+
   useEffect(() => {
     const loadData = async () => {
       const [seriesData, tournamentData, powerCupData, matchesData] = await Promise.all([
@@ -89,15 +96,41 @@ const Statistics = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      <main className="container mx-auto px-4 py-12">
-        <h1 className="text-4xl font-bold text-primary mb-8">Statistik</h1>
+      <main className="container mx-auto px-4 py-6 md:py-12">
+        <h1 className="mb-6 text-3xl font-bold text-primary md:mb-8 md:text-4xl">Statistik</h1>
         <p className="text-xl font-bold mb-4">Serie + turneringar</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Podium for Top 3 Goal Scorers */}
           {players.length >= 3 && (
             <div>
               <h2 className="text-2xl font-bold text-center mb-4">Mål</h2>
-              <div className="flex items-end justify-center gap-4 py-8">
+
+              {/* Mobile podium */}
+              <ol className="space-y-2 md:hidden">
+                {[...players]
+                  .sort((a, b) => b.goals - a.goals)
+                  .slice(0, 3)
+                  .map((player, index) => (
+                    <li 
+                      key={player.id} 
+                      className={`flex items-center gap-3 p-3 rounded-lg ${podiumColors[index]}`}
+                    >
+                      <span aria-hidden="true">
+                        {['🥇', '🥈', '🥉'][index]}
+                      </span>
+                      <span className="min-w-0 flex-1 break-words">
+                        {player.name}
+                      </span>
+                      <span className="shrink-0 font-bold">
+                        {player.goals} mål
+                      </span>
+                    </li>
+                  ))
+                }
+              </ol>
+
+              {/* Desktop podium */}
+              <div className="hidden items-end justify-center gap-4 py-8 md:flex">
                 {(() => {
                   const sortedByGoals = [...players].sort((a, b) => b.goals - a.goals);
                   return (
@@ -134,7 +167,36 @@ const Statistics = () => {
           {players.length >= 3 && (
             <div>
               <h2 className="text-2xl font-bold text-center mb-4">Totalpoäng</h2>
-              <div className="flex items-end justify-center gap-4 py-8">
+
+              {/* Mobile podium */}
+              <ol className="space-y-2 md:hidden">
+                {[...players]
+                  .sort((a, b) => (b.goals+b.assists) - (a.goals+a.assists))
+                  .slice(0, 3)
+                  .map((player, index) => (
+                    <li 
+                      key={player.id} 
+                      className={`flex items-center gap-3 p-3 rounded-lg ${podiumColors[index]}`}
+                    >
+                      <span aria-hidden="true">
+                        {['🥇', '🥈', '🥉'][index]}
+                      </span>
+                      <span className="min-w-0 flex-1 break-words">
+                        {player.name}
+                      </span>
+                      <span className="shrink-0 opacity-75 text-sm">
+                        ({player.goals}+{player.assists})
+                      </span>
+                      <span className="shrink-0 font-bold">
+                        {player.goals + player.assists} poäng
+                      </span>
+                    </li>
+                  ))
+                }
+              </ol>
+
+              {/* Desktop podium */}
+              <div className="hidden items-end justify-center gap-4 py-8 md:flex">
                 {(() => {
                   const sortedByPoints = [...players].sort((a, b) => (b.goals + b.assists) - (a.goals + a.assists));
                   return (
