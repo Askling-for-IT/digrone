@@ -2,7 +2,7 @@ export const GITHUB_CONFIG = {
     owner: "Setorator",
     repo: "digrone",
     branch: "main",
-    dataPath: "public/data"
+    dataPath: "frontend/public/data"
 };
 
 export const getGitHubToken = (): string | null => {

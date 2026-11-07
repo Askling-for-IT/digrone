@@ -8,6 +8,10 @@ export default defineConfig(() => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      "/auth": "http://localhost:8083",
+      "/api": "http://localhost:8083",
+    },
   },
   plugins: [react()],
   resolve: {
