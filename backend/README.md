@@ -80,10 +80,11 @@ the version and dirty state; starting the API again skips applied migrations.
 Application tables will use PostgreSQL's existing `public` schema, like twogo.
 The initial migration records a baseline without creating application tables.
 `000002_sessions` adds application sessions. `000003_players_matches_events`
-adds players, matches, and statistics/fine events.
+adds players, matches, and statistics/fine events. `000004_event_match_links`
+enforces match references for goals/penalties and forbids them for fines/payments.
 
-Add sequential pairs such as `000004_description.up.sql` and
-`000004_description.down.sql`. Never edit an already applied migration. Use
+Add sequential pairs such as `000005_description.up.sql` and
+`000005_description.down.sql`. Never edit an already applied migration. Use
 transactions for changes that PostgreSQL allows inside a transaction. The API
 only migrates forward; down files are available for deliberate manual rollback
 with the migration CLI. Back up data before production schema changes.
@@ -119,12 +120,12 @@ Event types and their intended fields:
 | --- | --- | --- |
 | `goal` | `match_id`, `player_id`, optional `assisting_player_id` | One goal for the scorer and one assist if specified |
 | `penalty` | `match_id`, `player_id`, `penalty_minutes` | Penalty minutes for a player |
-| `fine` | `player_id`, positive `num_beers`, `comment`, optional `match_id` | Beer cans owed and the reason |
-| `fine_payment` | `player_id`, positive `num_beers`, optional `comment`/`match_id` | Beer cans paid, including partial payments |
+| `fine` | `player_id`, positive `num_beers`, optional `comment`, no `match_id` | Beer cans owed and the reason |
+| `fine_payment` | `player_id`, positive `num_beers`, optional `comment`, no `match_id` | Beer cans paid, including partial payments |
 
 Outstanding beer balance is the sum of fines minus the sum of payments. Total
 paid is the sum of payments. Payments are separate records so paying a fine does
-not erase its history. Fines and payments can exist independently of a match.
+not erase its history. Fines and payments are always independent of matches.
 Beer balances use all fine/payment events, regardless of match status. Sporting
 totals will use goal and penalty events from completed matches only. Final match
 scores are stored independently so results can be recorded without known scorers.
@@ -132,8 +133,8 @@ scores are stored independently so results can be recorded without known scorers
 Foreign keys preserve player and match references. Deleting a referenced player
 or match requires handling its events explicitly; events are not silently deleted.
 No match rosters, appearance counts, team IDs, shirt numbers, or captain fields
-are stored. Historical JSON data has not been imported. Match/event routes and
-statistics aggregation queries are subsequent work.
+are stored. Historical JSON data has not been imported. Statistics aggregation
+queries are subsequent work.
 
 ## Player API
 
@@ -159,6 +160,103 @@ protection as the authentication endpoints.
 
 For local browser requests, use `/api/players` through the React development
 server on port 8080. The Vite proxy forwards requests to the API on port 8083.
+
+## Match API
+
+| Method | Path | Access | Result |
+| --- | --- | --- | --- |
+| GET | `/api/matches` | Public | Match summaries ordered by start time |
+| GET | `/api/matches/{id}` | Public | Match details including its events |
+| POST | `/api/matches` | Admin session | Create a match and optional events; HTTP 201 |
+| PUT | `/api/matches/{id}` | Admin session | Update a match and optional events; HTTP 200 |
+
+Filter the list using `?competition=Season%2026%2F27`. Empty lists are `[]`.
+There is no match deletion endpoint; deletion is reserved for manual database
+maintenance. Existing event foreign keys still apply to manual deletions.
+
+Match save requests contain the complete match fields and may include events:
+
+```json
+{
+  "start_time": "2026-11-22T13:00:00+01:00",
+  "opponent": "Opponent name",
+  "home_game": true,
+  "competition": "Season 26/27",
+  "status": "completed",
+  "goals_for": 2,
+  "goals_against": 1,
+  "events": [
+    {
+      "event_type": "goal",
+      "player_id": "<scorer-player-uuid>",
+      "assisting_player_id": "<assisting-player-uuid>"
+    },
+    {
+      "event_type": "penalty",
+      "player_id": "<player-uuid>",
+      "penalty_minutes": 2
+    }
+  ]
+}
+```
+
+Replace the placeholders with existing player UUIDs. Status defaults to
+`scheduled`; use `completed` explicitly when saving a final result, and provide
+both final scores. Scheduled scores may be `null`. Start times use RFC 3339,
+including a timezone offset or `Z`.
+
+The match result and supplied events are saved in **one transaction**. If any
+player reference or event fails, the entire save rolls back, including the
+previous result and events on updates.
+
+- Supplying `events` replaces the match's complete event list, giving the new
+  records fresh event IDs. Use the returned IDs for subsequent individual edits.
+- Supplying `events: []` clears the match's events.
+- Omitting `events` (or setting it to `null`) preserves existing events on updates.
+- Nested events must be goals or penalties; their match ID is assigned by the
+  backend. Fines and payments are recorded through the separate event endpoints.
+
+PUT replaces the match fields; it is not a partial update. Scores are independent
+of event counts so a result can be saved before all scorers are known. Save
+responses include the match and its current `events` array. Single-match reads
+use one database snapshot for a consistent result/event response.
+
+## Event API
+
+| Method | Path | Access | Result |
+| --- | --- | --- | --- |
+| GET | `/api/events` | Public | Event list ordered by occurrence time |
+| GET | `/api/events/{id}` | Public | One event |
+| POST | `/api/events` | Admin session | Create an event; HTTP 201 |
+| PUT | `/api/events/{id}` | Admin session | Update an event; HTTP 200 |
+| DELETE | `/api/events/{id}` | Admin session | Delete an event; HTTP 204 |
+
+List filters can be combined: `match_id`, `player_id` (the primary player, not
+an assisting player), and `event_type`. Example:
+`/api/events?player_id=<uuid>&event_type=fine`.
+
+Goal and penalty requests require `match_id`. Fines and payments must omit it
+or send `null`. Only goals accept `assisting_player_id`; penalties require positive
+`penalty_minutes`; fines/payments require positive `num_beers`. Other type-specific
+fields should be omitted or `null`. The database also enforces the match-link rule.
+
+Example standalone fine:
+
+```json
+{
+  "event_type": "fine",
+  "player_id": "<player-uuid>",
+  "num_beers": 6,
+  "comment": "Late to training"
+}
+```
+
+Use `fine_payment` to record a payment with the same fields. `comment` is optional.
+Optional `occurred_at` accepts an RFC 3339 timestamp; creation defaults to the
+current time and updates preserve the existing timestamp if omitted.
+PUT otherwise replaces the event fields. Missing records return HTTP 404;
+unknown referenced players or matches return HTTP 409. All writes require an
+admin session and are protected against cross-origin browser requests.
 
 ## Keycloak setup
 
@@ -207,9 +305,9 @@ Keycloak and other applications. Role changes in Keycloak take effect on the
 next login. To revoke an existing application's session immediately, delete the
 user's rows from `public.sessions`.
 
-`RequireAdmin` middleware protects `/auth/me` and player write routes. It returns
+`RequireAdmin` middleware protects `/auth/me` and all player/match/event write routes. It returns
 HTTP 401 for missing/expired sessions and HTTP 403 for sessions without admin
-access. There are no match write routes yet.
+access.
 
 Go's built-in cross-origin protection guards requests that change data. Browser
 POST/PUT/PATCH/DELETE requests must come from the same origin. The Vite development
@@ -244,8 +342,13 @@ Player endpoints were verified against local PostgreSQL with temporary records:
 public reads, admin-only create/update/delete, persisted names, missing players,
 and protection against deleting players referenced by events. Temporary checks
 ran with the race detector; their records and test files were removed afterward.
+Match/event CRUD was verified in a separate temporary PostgreSQL database using
+race-enabled temporary checks. These covered all write authorization, cross-origin
+rejection, combined-save rollback, event replacement/preservation, standalone fines
+and payments, filters, and migration rollback/reapply. The temporary database and
+test file were removed; the application database was not modified.
 No test files are kept in the repository. A real-server login still requires the
 Keycloak realm and client configuration above.
 
-Match/statistics endpoints, frontend API integration, and server deployment are
-subsequent steps. The frontend continues using its existing storage.
+Statistics endpoints, historical import, frontend API integration, and server
+deployment are subsequent steps. The frontend continues using its existing storage.

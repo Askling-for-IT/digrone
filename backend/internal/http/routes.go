@@ -41,6 +41,25 @@ func NewRouter(cfg config.Config, pool *pgxpool.Pool, auth *auth.Client) http.Ha
 			r.Delete("/{id}", h.DeletePlayer)
 		})
 	})
+	r.Route("/api/matches", func(r chi.Router) {
+		r.Get("/", h.ListMatches)
+		r.Get("/{id}", h.GetMatch)
+		r.Group(func(r chi.Router) {
+			r.Use(appmw.RequireAdmin(s))
+			r.Post("/", h.SaveMatch)
+			r.Put("/{id}", h.SaveMatch)
+		})
+	})
+	r.Route("/api/events", func(r chi.Router) {
+		r.Get("/", h.ListEvents)
+		r.Get("/{id}", h.GetEvent)
+		r.Group(func(r chi.Router) {
+			r.Use(appmw.RequireAdmin(s))
+			r.Post("/", h.SaveEvent)
+			r.Put("/{id}", h.SaveEvent)
+			r.Delete("/{id}", h.DeleteEvent)
+		})
+	})
 	r.Route("/auth", func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
