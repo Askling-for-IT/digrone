@@ -127,14 +127,14 @@ Outstanding beer balance is the sum of fines minus the sum of payments. Total
 paid is the sum of payments. Payments are separate records so paying a fine does
 not erase its history. Fines and payments are always independent of matches.
 Beer balances use all fine/payment events, regardless of match status. Sporting
-totals will use goal and penalty events from completed matches only. Final match
+totals use goal and penalty events from completed matches only. Final match
 scores are stored independently so results can be recorded without known scorers.
 
 Foreign keys preserve player and match references. Deleting a referenced player
 or match requires handling its events explicitly; events are not silently deleted.
 No match rosters, appearance counts, team IDs, shirt numbers, or captain fields
-are stored. Historical JSON data has not been imported. Statistics aggregation
-queries are subsequent work.
+are stored. Historical JSON data has not been imported. Statistics are calculated
+from the events currently in PostgreSQL.
 
 ## Player API
 
@@ -258,6 +258,70 @@ PUT otherwise replaces the event fields. Missing records return HTTP 404;
 unknown referenced players or matches return HTTP 409. All writes require an
 admin session and are protected against cross-origin browser requests.
 
+## Statistics API
+
+These public endpoints calculate current totals directly from events. They do not
+store or cache totals, and require no login or additional database migration.
+
+| Method | Path | Filters | Result |
+| --- | --- | --- | --- |
+| GET | `/api/statistics/players` | Optional `competition`, `player_id` | Goals, assists, points, and penalty minutes per player |
+| GET | `/api/statistics/beers` | Optional `player_id` | Total beer fines, payments, and outstanding balance per player |
+
+Sporting statistics count only goal/penalty events belonging to **completed**
+matches. Each goal adds one goal for `player_id` and one assist for its optional
+`assisting_player_id`. Points are goals plus assists. Penalty minutes are summed
+from penalty events. Scorer and assister totals are aggregated separately to
+avoid multiplying totals when a player has several events.
+
+Example player statistics response:
+
+```json
+[
+  {
+    "player_id": "<player-uuid>",
+    "name": "Kim Askling",
+    "goals": 2,
+    "assists": 3,
+    "points": 5,
+    "penalty_minutes": 2
+  }
+]
+```
+
+Use `/api/statistics/players?competition=Season%2026%2F27` to filter by an exact
+competition label. Combine it with `&player_id=<uuid>` for one player's totals.
+Results are ordered by points descending, goals descending, then name and ID.
+All players are included even if they have no events in the selected competition;
+their totals are zero. Appearance counts are not calculated because no match
+rosters are recorded.
+
+Beer balances use all standalone fine/payment events, independently of matches
+and competitions. A competition filter does not apply to this endpoint:
+
+```json
+[
+  {
+    "player_id": "<player-uuid>",
+    "name": "Kim Askling",
+    "fined_beers": 14,
+    "paid_beers": 5,
+    "outstanding_beers": 9
+  }
+]
+```
+
+`outstanding_beers` is fines minus payments. A negative value represents credit
+from paying more cans than have been fined. Results are ordered by outstanding
+balance descending, then name and ID. Players without fines/payments have zero
+balances.
+
+Both endpoints always return arrays, including when filtering by one player.
+An empty player table or a filter for a nonexistent player returns `[]`; a
+nonexistent competition returns the players with zero sporting totals. Malformed
+player UUIDs return HTTP 400. Event edits/deletions, player name changes, and match
+status changes are reflected on the next request.
+
 ## Keycloak setup
 
 Use your existing Keycloak server; the application does not run another instance.
@@ -347,8 +411,13 @@ race-enabled temporary checks. These covered all write authorization, cross-orig
 rejection, combined-save rollback, event replacement/preservation, standalone fines
 and payments, filters, and migration rollback/reapply. The temporary database and
 test file were removed; the application database was not modified.
+Statistics were verified with race-enabled temporary checks in an isolated local
+PostgreSQL database: multiple goals/assists and penalties without double-counting,
+competition/player filters, completed-only results, zero-stat players, partial
+payments and credits, and recalculation after event edits/deletions or match
+status changes. That database and temporary test file were removed afterward.
 No test files are kept in the repository. A real-server login still requires the
 Keycloak realm and client configuration above.
 
-Statistics endpoints, historical import, frontend API integration, and server
-deployment are subsequent steps. The frontend continues using its existing storage.
+Historical import, frontend API integration, and server deployment are subsequent
+steps. The frontend continues using its existing storage.

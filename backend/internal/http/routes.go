@@ -31,6 +31,10 @@ func NewRouter(cfg config.Config, pool *pgxpool.Pool, auth *auth.Client) http.Ha
 
 	s := store.NewStore(pool)
 	h := handlers.NewHandlers(cfg, s, auth)
+	r.Route("/api/statistics", func(r chi.Router) {
+		r.Get("/players", h.ListPlayerStatistics)
+		r.Get("/beers", h.ListBeerBalances)
+	})
 	r.Route("/api/players", func(r chi.Router) {
 		r.Get("/", h.ListPlayers)
 		r.Get("/{id}", h.GetPlayer)
