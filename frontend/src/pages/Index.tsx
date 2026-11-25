@@ -1,64 +1,75 @@
 import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Trophy, Award, Target } from 'lucide-react';
-import { fetchMatches } from '@/lib/github-storage';
-import { useEffect, useState } from 'react';
-import { Match } from '@/lib/storage';
+import { useQuery } from '@tanstack/react-query';
+import { fetchMatches, type Match } from '@/lib/api';
+
+type CompletedMatch = Match & { 
+  goals_for: number;
+  goals_against: number;
+};
+
+const byStartTime = (a: Match, b: Match) =>
+  Date.parse(a.start_time) - Date.parse(b.start_time);
 
 const Index = () => {
-  const [stats, setStats] = useState(
-    { 
-      matches: 0, 
-      totGoalsFor: 0,
-      totGoalsAgainst: 0,
-      wins: 0
-    }
-  );
-  const [lastFiveResults, setLastFiveResults] = useState<string[]>([]);
-  const [nextMatch, setNextMatch] = useState<Match | null>(null)
-  const [prevMatch, setPrevMatch] = useState<Match | null>(null)
+  const query = useQuery({
+    queryKey: ['matches'],
+    queryFn: fetchMatches,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    const loadData = async () => {
-      const now = new Date();
-      const matches = await fetchMatches();
-      const matchesPlayed = matches.filter( m => new Date(m.date) < now );
-      const totGoalsFor = matches.reduce((sum, m) => sum + m.goalsFor, 0);
-      const totGoalsAgainst = matches.reduce((sum, m) => sum + m.goalsAgainst, 0);
-      const wins = matchesPlayed.filter(m => m.goalsFor > m.goalsAgainst).length;
-      
-      // Get last 5 matches results
-      const lastFive = matchesPlayed
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 5)
-        .reverse()
-        .map(m => {
-          if (m.goalsFor > m.goalsAgainst) return 'win';
-          if (m.goalsFor < m.goalsAgainst) return 'loss';
-          return 'draw';
-        });
-      setLastFiveResults(lastFive);
-      
-      setStats(
-        { 
-          matches: matchesPlayed.length,
-          totGoalsFor,
-          totGoalsAgainst, 
-          wins
-        });
+  if (query.isPending) {
+    return <p>Laddar matcher...</p>;
+  }
 
-      const nextMatch = matches
-        .filter( m => new Date(m.date) > now )
-        .sort( (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() )[0];
-      const prevMatch = matches
-        .filter( m => new Date(m.date) < now )
-        .sort( (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() )[0];
-      setNextMatch(nextMatch);
-      setPrevMatch(prevMatch);
+  if (query.isError) {
+    return <p role="alert">Fel vid hämtning av matcher: {query.error.message || 'Okänt fel'}</p>;
+  }
 
-    };
-    loadData();
-  }, []);
+  const matches = query.data;
+
+  const completed = matches.filter(
+    (m): m is CompletedMatch => 
+      m.status === 'completed' &&
+      m.goals_for !== null &&
+      m.goals_against !== null,
+  ).sort(byStartTime);
+
+  const stats = {
+    matches: completed.length,
+    wins: completed.filter(
+      (m) => m.goals_for > m.goals_against,
+    ).length,
+    totGoalsFor: completed.reduce(
+      (sum, m) => sum + m.goals_for,
+      0,
+    ),
+    totGoalsAgainst: completed.reduce(
+      (sum, m) => sum + m.goals_against,
+      0,
+    ),
+  };
+
+  const lastFiveResults = completed
+    .slice(-5)
+    .map((m) => {
+      if (m.goals_for > m.goals_against) return 'win';
+      if (m.goals_for < m.goals_against) return 'loss';
+      return 'draw';
+    });
+
+  const nextMatch = matches
+    .filter((m) => 
+      m.status === 'scheduled' &&
+      Date.parse(m.start_time) > Date.now(),
+    )
+    .sort(byStartTime)[0] ?? null;
+
+  const prevMatch = completed
+    .sort(byStartTime)
+    .slice(-1)[0] ?? null;
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -126,20 +137,20 @@ const Index = () => {
               {prevMatch ? (
                 <div className="mt-4 text-center">
                   <p className="text-sm text-muted-foreground mb-2">
-                    {new Date(prevMatch.date).toLocaleDateString('sv-SE', { 
+                    {new Date(prevMatch.start_time).toLocaleDateString('sv-SE', { 
                       day: 'numeric',
                       month: 'short',
                       year: 'numeric'
                     })}
                   </p>
                   <p className="text-lg mb-2">
-                    {prevMatch.homeGame ? `Di Gröne - ${prevMatch.opponent}` : `${prevMatch.opponent} - Di Gröne`}
+                    {prevMatch.home_game ? `Di Gröne - ${prevMatch.opponent}` : `${prevMatch.opponent} - Di Gröne`}
                   </p>
                   <p className={`text-2xl font-bold 
-                    ${prevMatch.goalsFor > prevMatch.goalsAgainst ? 'text-green-600' : 
-                    prevMatch.goalsFor < prevMatch.goalsAgainst ? 'text-red-600' : 
+                    ${prevMatch.goals_for > prevMatch.goals_against ? 'text-green-600' : 
+                    prevMatch.goals_for < prevMatch.goals_against ? 'text-red-600' : 
                     'text-grey-600'}`}>
-                    {prevMatch.homeGame ? `${prevMatch.goalsFor} - ${prevMatch.goalsAgainst}` : `${prevMatch.goalsAgainst} - ${prevMatch.goalsFor}`}
+                    {prevMatch.home_game ? `${prevMatch.goals_for} - ${prevMatch.goals_against}` : `${prevMatch.goals_against} - ${prevMatch.goals_for}`}
                   </p>
                 </div>
               ) : (
@@ -156,7 +167,7 @@ const Index = () => {
               {nextMatch ? (
                 <div className="mt-4 text-center">
                   <p className="text-sm text-muted-foreground mb-2">
-                    {new Date(nextMatch.date).toLocaleDateString('sv-SE', { 
+                    {new Date(nextMatch.start_time).toLocaleDateString('sv-SE', { 
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric',
@@ -165,7 +176,7 @@ const Index = () => {
                     })}
                   </p>
                   <p className="text-lg">
-                    {nextMatch.homeGame ? `Di Gröne - ${nextMatch.opponent}` : `${nextMatch.opponent} - Di Gröne`}
+                    {nextMatch.home_game ? `Di Gröne - ${nextMatch.opponent}` : `${nextMatch.opponent} - Di Gröne`}
                   </p>
                 </div>
               ) : (
