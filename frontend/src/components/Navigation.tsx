@@ -8,8 +8,6 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 const navigationLinks = [
   { to: '/', label: 'Hem' },
   { to: '/statistics', label: 'Statistik' },
-  { to: '/tournament', label: 'Regionscupen' },
-  { to: '/power-cup', label: 'Power cup' },
 ];
 
 const Navigation = () => {

@@ -38,6 +38,7 @@ const Admin = () => {
       number: parseInt(formData.get('playerNumber') as string),
       goals: 0,
       assists: 0,
+      penaltyMins: 0,
       matches: 0,
       currentTab: 0,
       paidOffTab: 0,

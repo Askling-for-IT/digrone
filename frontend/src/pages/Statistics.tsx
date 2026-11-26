@@ -30,11 +30,21 @@ const Statistics = () => {
   });
 
   if (query.isPending) {
-    return <p>Laddar statistik...</p>;
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="container mx-auto px-4 py-6" role="status">Laddar statistik...</main>
+      </div>
+    );
   }
 
   if (query.isError) {
-    return <p role="alert">Fel vid hämtning av statistik: {query.error.message || 'Okänt fel'}</p>;
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="container mx-auto px-4 py-6" role="alert">Kunde inte hämta statistik. Försök igen senare.</main>
+      </div>
+    );
   }
 
   const { matches, playerStats: players, beerBalances } = query.data;
@@ -61,7 +71,7 @@ const Statistics = () => {
       <Navigation />
       <main className="container mx-auto px-4 py-6 md:py-12">
         <h1 className="mb-6 text-3xl font-bold text-primary md:mb-8 md:text-4xl">Statistik</h1>
-        <p className="text-xl font-bold mb-4">Serie + turneringar</p>
+        <p className="text-xl font-bold mb-4">Alla säsonger och turneringar</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Podium for Top 3 Goal Scorers */}
           {players.length >= 3 && (
@@ -237,6 +247,7 @@ const Statistics = () => {
                   <TableRow>
                     <TableHead>Datum</TableHead>
                     <TableHead>Motståndare</TableHead>
+                    <TableHead>Tävling</TableHead>
                     <TableHead className="text-center">Resultat</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -257,6 +268,7 @@ const Statistics = () => {
                             })}
                           </TableCell>
                           <TableCell>{match.opponent}</TableCell>
+                          <TableCell>{match.competition}</TableCell>
                           <TableCell className="text-center">
                             <span
                               className={`font-semibold ${
@@ -275,7 +287,7 @@ const Statistics = () => {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
                         Inga spelade matcher registrerade ännu
                       </TableCell>
                     </TableRow>

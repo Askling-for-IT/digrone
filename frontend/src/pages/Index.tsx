@@ -20,11 +20,21 @@ const Index = () => {
   });
 
   if (query.isPending) {
-    return <p>Laddar matcher...</p>;
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="container mx-auto px-4 py-6" role="status">Laddar matcher...</main>
+      </div>
+    );
   }
 
   if (query.isError) {
-    return <p role="alert">Fel vid hämtning av matcher: {query.error.message || 'Okänt fel'}</p>;
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="container mx-auto px-4 py-6" role="alert">Kunde inte hämta matcher. Försök igen senare.</main>
+      </div>
+    );
   }
 
   const matches = query.data;
@@ -86,7 +96,7 @@ const Index = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.matches}</div>
-              <p className="text-xs text-muted-foreground">{stats.wins} vinster</p>
+              <p className="text-xs text-muted-foreground">{stats.wins} vinster · Alla tävlingar</p>
             </CardContent>
           </Card>
           
