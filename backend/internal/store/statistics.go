@@ -28,6 +28,7 @@ WITH sporting_events AS (
     FROM public.events e
     JOIN public.matches m ON m.id = e.match_id
     WHERE m.status = 'completed'
+      AND m.historical_source_key IS NULL
       AND ($1 = '' OR m.competition = $1)
       AND e.event_type IN ('goal', 'penalty')
 ), player_totals AS (
@@ -41,16 +42,25 @@ WITH sporting_events AS (
     FROM sporting_events
     WHERE event_type = 'goal' AND assisting_player_id IS NOT NULL
     GROUP BY assisting_player_id
+), historical_totals AS (
+    SELECT player_id, SUM(goals) AS goals, SUM(assists) AS assists,
+           SUM(penalty_minutes) AS penalty_minutes
+    FROM public.historical_player_statistics
+    WHERE ($1 = '' OR competition = $1)
+    GROUP BY player_id
 )
 SELECT p.id, p.name,
-       COALESCE(t.goals, 0), COALESCE(a.assists, 0),
-       COALESCE(t.goals, 0) + COALESCE(a.assists, 0) AS points,
-       COALESCE(t.penalty_minutes, 0)
+       COALESCE(t.goals, 0) + COALESCE(h.goals, 0) AS goals,
+       COALESCE(a.assists, 0) + COALESCE(h.assists, 0) AS assists,
+       COALESCE(t.goals, 0) + COALESCE(h.goals, 0)
+           + COALESCE(a.assists, 0) + COALESCE(h.assists, 0) AS points,
+       COALESCE(t.penalty_minutes, 0) + COALESCE(h.penalty_minutes, 0)
 FROM public.players p
 LEFT JOIN player_totals t ON t.player_id = p.id
 LEFT JOIN assist_totals a ON a.player_id = p.id
+LEFT JOIN historical_totals h ON h.player_id = p.id
 WHERE ($2::uuid IS NULL OR p.id = $2)
-ORDER BY points DESC, COALESCE(t.goals, 0) DESC, p.name, p.id`, competition, playerID)
+ORDER BY points DESC, goals DESC, p.name, p.id`, competition, playerID)
 	if err != nil {
 		return nil, err
 	}

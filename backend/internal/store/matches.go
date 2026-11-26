@@ -23,6 +23,7 @@ type MatchFields struct {
 type Match struct {
 	ID string `json:"id"`
 	MatchFields
+	StatisticsInHistoricalTotals bool `json:"statistics_in_historical_totals"`
 }
 
 type MatchInput struct {
@@ -36,12 +37,12 @@ type MatchDetail struct {
 	Events []Event `json:"events"`
 }
 
-const matchColumns = "id, start_time, opponent, home_game, competition, status, goals_for, goals_against"
+const matchColumns = "id, start_time, opponent, home_game, competition, status, goals_for, goals_against, historical_source_key IS NOT NULL AS statistics_in_historical_totals"
 
 func scanMatch(row pgx.Row) (Match, error) {
 	var match Match
 	err := row.Scan(&match.ID, &match.StartTime, &match.Opponent, &match.HomeGame,
-		&match.Competition, &match.Status, &match.GoalsFor, &match.GoalsAgainst)
+		&match.Competition, &match.Status, &match.GoalsFor, &match.GoalsAgainst, &match.StatisticsInHistoricalTotals)
 	return match, err
 }
 

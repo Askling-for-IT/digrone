@@ -82,9 +82,12 @@ The initial migration records a baseline without creating application tables.
 `000002_sessions` adds application sessions. `000003_players_matches_events`
 adds players, matches, and statistics/fine events. `000004_event_match_links`
 enforces match references for goals/penalties and forbids them for fines/payments.
+`000005_historical_player_statistics` adds historical sporting totals and match
+source markers. Historical records are loaded manually with the reviewed
+[historical import](imports/README.md), not by the startup migrations.
 
-Add sequential pairs such as `000005_description.up.sql` and
-`000005_description.down.sql`. Never edit an already applied migration. Use
+Add sequential pairs such as `000006_description.up.sql` and
+`000006_description.down.sql`. Never edit an already applied migration. Use
 transactions for changes that PostgreSQL allows inside a transaction. The API
 only migrates forward; down files are available for deliberate manual rollback
 with the migration CLI. Back up data before production schema changes.
@@ -126,15 +129,16 @@ Event types and their intended fields:
 Outstanding beer balance is the sum of fines minus the sum of payments. Total
 paid is the sum of payments. Payments are separate records so paying a fine does
 not erase its history. Fines and payments are always independent of matches.
-Beer balances use all fine/payment events, regardless of match status. Sporting
-totals use goal and penalty events from completed matches only. Final match
+Beer balances use all fine/payment events, regardless of match status. Live sporting
+totals use goal and penalty events from completed, non-archived matches. Imported
+historical player totals are added separately. Final match
 scores are stored independently so results can be recorded without known scorers.
 
 Foreign keys preserve player and match references. Deleting a referenced player
 or match requires handling its events explicitly; events are not silently deleted.
 No match rosters, appearance counts, team IDs, shirt numbers, or captain fields
-are stored. Historical JSON data has not been imported. Statistics are calculated
-from the events currently in PostgreSQL.
+are stored. Historical JSON data is not loaded automatically; see the
+[historical import](imports/README.md) for source reconciliation and manual loading.
 
 ## Player API
 
@@ -260,16 +264,18 @@ admin session and are protected against cross-origin browser requests.
 
 ## Statistics API
 
-These public endpoints calculate current totals directly from events. They do not
-store or cache totals, and require no login or additional database migration.
+These public endpoints calculate current totals from live events and any imported
+historical sporting summaries. They require no login and do not cache responses.
+Historical summaries require schema migration `000005` and the separate data import.
 
 | Method | Path | Filters | Result |
 | --- | --- | --- | --- |
 | GET | `/api/statistics/players` | Optional `competition`, `player_id` | Goals, assists, points, and penalty minutes per player |
 | GET | `/api/statistics/beers` | Optional `player_id` | Total beer fines, payments, and outstanding balance per player |
 
-Sporting statistics count only goal/penalty events belonging to **completed**
-matches. Each goal adds one goal for `player_id` and one assist for its optional
+Live sporting statistics count only goal/penalty events belonging to **completed**
+matches that are not covered by historical summaries. Historical totals are added
+per player, with the same competition filter. Each goal adds one goal for `player_id` and one assist for its optional
 `assisting_player_id`. Points are goals plus assists. Penalty minutes are summed
 from penalty events. Scorer and assister totals are aggregated separately to
 avoid multiplying totals when a player has several events.
@@ -319,8 +325,11 @@ balances.
 Both endpoints always return arrays, including when filtering by one player.
 An empty player table or a filter for a nonexistent player returns `[]`; a
 nonexistent competition returns the players with zero sporting totals. Malformed
-player UUIDs return HTTP 400. Event edits/deletions, player name changes, and match
-status changes are reflected on the next request.
+player UUIDs return HTTP 400. Live event edits/deletions, player name changes, and
+match status changes are reflected on the next request. Historical summaries stay
+fixed when archived match details/events change. Match responses identify them
+with `statistics_in_historical_totals: true`; see the import notes before backfilling
+old matches with detailed sporting events.
 
 ## Keycloak setup
 
@@ -420,4 +429,5 @@ No test files are kept in the repository. A real-server login still requires the
 Keycloak realm and client configuration above.
 
 Historical import, frontend API integration, and server deployment are subsequent
-steps. The frontend continues using its existing storage.
+steps. The frontend homepage and statistics page use the API; the admin and cup pages
+continue using their existing storage.
