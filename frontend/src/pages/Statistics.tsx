@@ -1,16 +1,13 @@
 import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { fetchMatches, fetchPlayers, fetchPowerCupPlayers, fetchTournamentPlayers } from '@/lib/github-storage';
-import { useEffect, useMemo, useState } from 'react';
-import type { Match, Player } from '@/lib/storage';
+import { useQuery } from '@tanstack/react-query';
+import { fetchMatches, fetchPlayerStats, fetchBeerBalances, type Match } from '@/lib/api';
 
-const Statistics = () => {
-  const [seriesPlayers, setSeriesPlayers] = useState<Player[]>([]);
-  const [tournamentPlayers, setTournamentPlayers] = useState<Player[]>([]);
-  const [powerCupPlayers, setPowerCupPlayers] = useState<Player[]>([]);
-  const [matches, setMatches] = useState<Match[]>([]);
-
+type CompletedMatch = Match & {
+  goals_for: number;
+  goals_against: number;
+};
 
 const podiumColors = [
   'bg-yellow-400 text-yellow-900 dark:bg-yellow-700 dark:text-yellow-100',
@@ -18,80 +15,46 @@ const podiumColors = [
   'bg-orange-400 text-orange-900 dark:bg-orange-700 dark:text-orange-100',
 ];
 
-  useEffect(() => {
-    const loadData = async () => {
-      const [seriesData, tournamentData, powerCupData, matchesData] = await Promise.all([
-        fetchPlayers(),
-        fetchTournamentPlayers(),
-        fetchPowerCupPlayers(),
+const Statistics = () => {
+  const query = useQuery({
+    queryKey: ['statistics'],
+    queryFn: async () => {
+      const [matches, playerStats, beerBalances] = await Promise.all([
         fetchMatches(),
+        fetchPlayerStats(),
+        fetchBeerBalances(),
       ]);
+      return { matches, playerStats, beerBalances };
+    },
+    staleTime: 60_000,
+  });
 
-      const sortByLastName = <T extends Player>(list: T[]) =>
-        list.sort((a, b) => (b.name.split(' ')[1] > a.name.split(' ')[1] ? -1 : 1));
+  if (query.isPending) {
+    return <p>Laddar statistik...</p>;
+  }
 
-      setSeriesPlayers(sortByLastName(seriesData));
-      setTournamentPlayers(sortByLastName(tournamentData));
-      setPowerCupPlayers(sortByLastName(powerCupData));
-      setMatches(matchesData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-    };
-    loadData();
-  }, []);
+  if (query.isError) {
+    return <p role="alert">Fel vid hämtning av statistik: {query.error.message || 'Okänt fel'}</p>;
+  }
 
-  const players = useMemo(() => {
-    const normalizePlayer = (player: Player): Player => ({
-      ...player,
-      number: player.number ?? 0,
-      goals: player.goals ?? 0,
-      assists: player.assists ?? 0,
-      penaltyMins: player.penaltyMins ?? 0,
-      matches: player.matches ?? 0,
-      currentTab: player.currentTab ?? 0,
-      paidOffTab: player.paidOffTab ?? 0,
-    });
-
-    const merged = new Map<string, Player>();
-
-    seriesPlayers.forEach((player) => {
-      merged.set(player.id, normalizePlayer(player));
-    });
-
-    tournamentPlayers.forEach((tournamentPlayer) => {
-      const normalized = normalizePlayer(tournamentPlayer);
-      const existing = merged.get(normalized.id);
-
-      if (existing) {
-        merged.set(normalized.id, {
-          ...existing,
-          goals: existing.goals + normalized.goals,
-          assists: existing.assists + normalized.assists,
-          penaltyMins: existing.penaltyMins + normalized.penaltyMins,
-          matches: existing.matches + normalized.matches,
-        });
-      } else {
-        merged.set(normalized.id, normalized);
-      }
-    });
-
-    powerCupPlayers.forEach((powerCupPlayer) => {
-      const normalized = normalizePlayer(powerCupPlayer);
-      const existing = merged.get(normalized.id);
-
-      if (existing) {
-        merged.set(normalized.id, {
-          ...existing,
-          goals: existing.goals + normalized.goals,
-          assists: existing.assists + normalized.assists,
-          penaltyMins: existing.penaltyMins + normalized.penaltyMins,
-          matches: existing.matches + normalized.matches,
-        });
-      } else {
-        merged.set(normalized.id, normalized);
-      }
-    });
-
-    return Array.from(merged.values());
-  }, [seriesPlayers, tournamentPlayers, powerCupPlayers]);
+  const { matches, playerStats: players, beerBalances } = query.data;
+  const sortedByGoals = [...players].sort(
+    (a, b) => b.goals - a.goals || b.points - a.points || a.name.localeCompare(b.name, 'sv'),
+  );
+  const sortedByPoints = [...players].sort(
+    (a, b) => b.points - a.points || b.goals - a.goals || a.name.localeCompare(b.name, 'sv'),
+  );
+  const beersWithHistory = beerBalances.filter(
+    (player) => player.fined_beers > 0 || player.paid_beers > 0,
+  );
+  const completedMatches = matches
+    .filter(
+      (match): match is CompletedMatch =>
+        match.status === 'completed' &&
+        match.goals_for !== null &&
+        match.goals_against !== null,
+    )
+    .sort((a, b) => Date.parse(a.start_time) - Date.parse(b.start_time));
 
   return (
     <div className="min-h-screen bg-background">
@@ -107,12 +70,11 @@ const podiumColors = [
 
               {/* Mobile podium */}
               <ol className="space-y-2 md:hidden">
-                {[...players]
-                  .sort((a, b) => b.goals - a.goals)
+                {sortedByGoals
                   .slice(0, 3)
                   .map((player, index) => (
                     <li 
-                      key={player.id} 
+                      key={player.player_id}
                       className={`flex items-center gap-3 p-3 rounded-lg ${podiumColors[index]}`}
                     >
                       <span aria-hidden="true">
@@ -131,34 +93,29 @@ const podiumColors = [
 
               {/* Desktop podium */}
               <div className="hidden items-end justify-center gap-4 py-8 md:flex">
-                {(() => {
-                  const sortedByGoals = [...players].sort((a, b) => b.goals - a.goals);
-                  return (
-                    <>
-                      {/* 2nd place */}
-                      <div className="flex flex-col items-center bg-slate-300 dark:bg-slate-700 p-6 rounded-lg w-40" style={{height: '200px'}}>
-                        <div className="text-4xl mb-2">🥈</div>
-                        <div className="font-bold text-center text-slate-900 dark:text-slate-100">{sortedByGoals[1].name}</div>
-                        <div className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-auto">{sortedByGoals[1].goals}</div>
-                        <div className="text-xs text-slate-700 dark:text-slate-300">mål</div>
-                      </div>
-                      {/* 1st place - tallest */}
-                      <div className="flex flex-col items-center bg-yellow-400 dark:bg-yellow-700 p-6 rounded-lg w-40" style={{height: '240px'}}>
-                        <div className="text-5xl mb-2">🥇</div>
-                        <div className="font-bold text-lg text-center text-yellow-900 dark:text-yellow-100">{sortedByGoals[0].name}</div>
-                        <div className="text-4xl font-bold text-yellow-900 dark:text-yellow-100 mt-auto">{sortedByGoals[0].goals}</div>
-                        <div className="text-sm text-yellow-800 dark:text-yellow-200">mål</div>
-                      </div>
-                      {/* 3rd place */}
-                      <div className="flex flex-col items-center bg-orange-400 dark:bg-orange-700 p-4 rounded-lg w-40" style={{height: '165px'}}>
-                        <div className="text-3xl mb-2">🥉</div>
-                        <div className="font-bold text-center text-orange-900 dark:text-orange-100">{sortedByGoals[2].name}</div>
-                        <div className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-auto">{sortedByGoals[2].goals}</div>
-                        <div className="text-xs text-orange-800 dark:text-orange-200">mål</div>
-                      </div>
-                    </>
-                  );
-                })()}
+                <>
+                  {/* 2nd place */}
+                  <div className="flex flex-col items-center bg-slate-300 dark:bg-slate-700 p-6 rounded-lg w-40" style={{height: '200px'}}>
+                    <div className="text-4xl mb-2">🥈</div>
+                    <div className="font-bold text-center text-slate-900 dark:text-slate-100">{sortedByGoals[1].name}</div>
+                    <div className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-auto">{sortedByGoals[1].goals}</div>
+                    <div className="text-xs text-slate-700 dark:text-slate-300">mål</div>
+                  </div>
+                  {/* 1st place - tallest */}
+                  <div className="flex flex-col items-center bg-yellow-400 dark:bg-yellow-700 p-6 rounded-lg w-40" style={{height: '240px'}}>
+                    <div className="text-5xl mb-2">🥇</div>
+                    <div className="font-bold text-lg text-center text-yellow-900 dark:text-yellow-100">{sortedByGoals[0].name}</div>
+                    <div className="text-4xl font-bold text-yellow-900 dark:text-yellow-100 mt-auto">{sortedByGoals[0].goals}</div>
+                    <div className="text-sm text-yellow-800 dark:text-yellow-200">mål</div>
+                  </div>
+                  {/* 3rd place */}
+                  <div className="flex flex-col items-center bg-orange-400 dark:bg-orange-700 p-4 rounded-lg w-40" style={{height: '165px'}}>
+                    <div className="text-3xl mb-2">🥉</div>
+                    <div className="font-bold text-center text-orange-900 dark:text-orange-100">{sortedByGoals[2].name}</div>
+                    <div className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-auto">{sortedByGoals[2].goals}</div>
+                    <div className="text-xs text-orange-800 dark:text-orange-200">mål</div>
+                  </div>
+                </>
               </div>
             </div>
           )}
@@ -170,12 +127,11 @@ const podiumColors = [
 
               {/* Mobile podium */}
               <ol className="space-y-2 md:hidden">
-                {[...players]
-                  .sort((a, b) => (b.goals+b.assists) - (a.goals+a.assists))
+                {sortedByPoints
                   .slice(0, 3)
                   .map((player, index) => (
                     <li 
-                      key={player.id} 
+                      key={player.player_id}
                       className={`flex items-center gap-3 p-3 rounded-lg ${podiumColors[index]}`}
                     >
                       <span aria-hidden="true">
@@ -188,7 +144,7 @@ const podiumColors = [
                         ({player.goals}+{player.assists})
                       </span>
                       <span className="shrink-0 font-bold">
-                        {player.goals + player.assists} poäng
+                        {player.points} poäng
                       </span>
                     </li>
                   ))
@@ -197,34 +153,29 @@ const podiumColors = [
 
               {/* Desktop podium */}
               <div className="hidden items-end justify-center gap-4 py-8 md:flex">
-                {(() => {
-                  const sortedByPoints = [...players].sort((a, b) => (b.goals + b.assists) - (a.goals + a.assists));
-                  return (
-                    <>
-                      {/* 2nd place */}
-                      <div className="flex flex-col items-center bg-slate-300 dark:bg-slate-700 p-6 rounded-lg w-40" style={{height: '200px'}}>
-                        <div className="text-4xl mb-2">🥈</div>
-                        <div className="font-bold text-center text-slate-900 dark:text-slate-100">{sortedByPoints[1].name}</div>
-                        <div className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-auto">{sortedByPoints[1].goals + sortedByPoints[1].assists}</div>
-                        <div className="text-xs text-slate-700 dark:text-slate-300">{sortedByPoints[1].goals}+{sortedByPoints[1].assists}</div>
-                      </div>
-                      {/* 1st place - tallest */}
-                      <div className="flex flex-col items-center bg-yellow-400 dark:bg-yellow-700 p-6 rounded-lg w-40" style={{height: '240px'}}>
-                        <div className="text-5xl mb-2">🥇</div>
-                        <div className="font-bold text-lg text-center text-yellow-900 dark:text-yellow-100">{sortedByPoints[0].name}</div>
-                        <div className="text-4xl font-bold text-yellow-900 dark:text-yellow-100 mt-auto">{sortedByPoints[0].goals + sortedByPoints[0].assists}</div>
-                        <div className="text-sm text-yellow-800 dark:text-yellow-200">{sortedByPoints[0].goals}+{sortedByPoints[0].assists}</div>
-                      </div>
-                      {/* 3rd place */}
-                      <div className="flex flex-col items-center bg-orange-400 dark:bg-orange-700 p-4 rounded-lg w-40" style={{height: '165px'}}>
-                        <div className="text-3xl mb-2">🥉</div>
-                        <div className="font-bold text-center text-orange-900 dark:text-orange-100">{sortedByPoints[2].name}</div>
-                        <div className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-auto">{sortedByPoints[2].goals + sortedByPoints[2].assists}</div>
-                        <div className="text-xs text-orange-800 dark:text-orange-200">{sortedByPoints[2].goals}+{sortedByPoints[2].assists}</div>
-                      </div>
-                    </>
-                  );
-                })()}
+                <>
+                  {/* 2nd place */}
+                  <div className="flex flex-col items-center bg-slate-300 dark:bg-slate-700 p-6 rounded-lg w-40" style={{height: '200px'}}>
+                    <div className="text-4xl mb-2">🥈</div>
+                    <div className="font-bold text-center text-slate-900 dark:text-slate-100">{sortedByPoints[1].name}</div>
+                    <div className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-auto">{sortedByPoints[1].points}</div>
+                    <div className="text-xs text-slate-700 dark:text-slate-300">{sortedByPoints[1].goals}+{sortedByPoints[1].assists}</div>
+                  </div>
+                  {/* 1st place - tallest */}
+                  <div className="flex flex-col items-center bg-yellow-400 dark:bg-yellow-700 p-6 rounded-lg w-40" style={{height: '240px'}}>
+                    <div className="text-5xl mb-2">🥇</div>
+                    <div className="font-bold text-lg text-center text-yellow-900 dark:text-yellow-100">{sortedByPoints[0].name}</div>
+                    <div className="text-4xl font-bold text-yellow-900 dark:text-yellow-100 mt-auto">{sortedByPoints[0].points}</div>
+                    <div className="text-sm text-yellow-800 dark:text-yellow-200">{sortedByPoints[0].goals}+{sortedByPoints[0].assists}</div>
+                  </div>
+                  {/* 3rd place */}
+                  <div className="flex flex-col items-center bg-orange-400 dark:bg-orange-700 p-4 rounded-lg w-40" style={{height: '165px'}}>
+                    <div className="text-3xl mb-2">🥉</div>
+                    <div className="font-bold text-center text-orange-900 dark:text-orange-100">{sortedByPoints[2].name}</div>
+                    <div className="text-2xl font-bold text-orange-900 dark:text-orange-100 mt-auto">{sortedByPoints[2].points}</div>
+                    <div className="text-xs text-orange-800 dark:text-orange-200">{sortedByPoints[2].goals}+{sortedByPoints[2].assists}</div>
+                  </div>
+                </>
               </div>
             </div>
           )}
@@ -246,27 +197,19 @@ const podiumColors = [
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow key="0">
-                    <TableCell>Jonas Snäll</TableCell>
-                    <TableCell className="text-right font-semibold">
-                      12 Monster
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      -
-                    </TableCell>
-                  </TableRow>
-                  {players.length > 0 ? (
-                    players
-                      .filter(p => p.currentTab + p.paidOffTab > 0)
-                      .sort((a, b) => b.currentTab - a.currentTab)
-                      .map((player) => (
-                        <TableRow key={player.id}>
+                  {beersWithHistory.length > 0 ? (
+                    beersWithHistory.map((player) => (
+                        <TableRow key={player.player_id}>
                           <TableCell>{player.name}</TableCell>
                           <TableCell className="text-right font-semibold">
-                            {player.currentTab > 0 ? `${player.currentTab} burkar` : '-'}
+                            {player.outstanding_beers < 0
+                              ? `${Math.abs(player.outstanding_beers)} burkar tillgodo`
+                              : player.outstanding_beers > 0
+                              ? `${player.outstanding_beers} burkar`
+                              : '-'}
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
-                            {player.paidOffTab > 0 ? `${player.paidOffTab} burkar` : '-'}
+                            {player.paid_beers > 0 ? `${player.paid_beers} burkar` : '-'}
                           </TableCell>
                         </TableRow>
                       ))
@@ -285,7 +228,7 @@ const podiumColors = [
 
           <Card>
             <CardHeader>
-              <CardTitle>Seriematcher</CardTitle>
+              <CardTitle>Spelade matcher</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="max-h-[600px] overflow-y-auto">
@@ -298,13 +241,13 @@ const podiumColors = [
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {matches.length > 0 ? (
-                    matches.map((match) => {
-                      const won = match.goalsFor > match.goalsAgainst;
-                      const draw = match.goalsFor === match.goalsAgainst;
+                  {completedMatches.length > 0 ? (
+                    completedMatches.map((match) => {
+                      const won = match.goals_for > match.goals_against;
+                      const draw = match.goals_for === match.goals_against;
                       return (
                         <TableRow key={match.id}>
-                          <TableCell>{new Date(match.date).toLocaleDateString(
+                          <TableCell>{new Date(match.start_time).toLocaleDateString(
                             'sv-SE', { 
                               day: 'numeric',
                               month: 'numeric',
@@ -324,7 +267,7 @@ const podiumColors = [
                                   : 'text-destructive'
                               }`}
                             >
-                              {match.goalsFor} - {match.goalsAgainst}
+                              {match.goals_for} - {match.goals_against}
                             </span>
                           </TableCell>
                         </TableRow>
@@ -332,8 +275,8 @@ const podiumColors = [
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
-                        Inga matcher registrerade ännu
+                      <TableCell colSpan={3} className="text-center text-muted-foreground">
+                        Inga spelade matcher registrerade ännu
                       </TableCell>
                     </TableRow>
                   )}
@@ -359,30 +302,25 @@ const podiumColors = [
                     <TableHead className="text-right">Mål</TableHead>
                     <TableHead className="text-right">Assist</TableHead>
                     <TableHead className="text-right">Utv. minuter</TableHead>
-                    <TableHead className="text-right">Matcher</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {players.length > 0 ? (
-                    players
-                      .sort((a,b) => b.name.split(" ")[1] > a.name.split(" ")[1] ? -1 : 1)
-                      .sort((a,b) => (b.goals + b.assists) - (a.goals + a.assists))
-                      .map((player, index) => (
-                        <TableRow key={player.id}>
+                    sortedByPoints.map((player, index) => (
+                        <TableRow key={player.player_id}>
                           <TableCell className="font-medium">{index + 1}</TableCell>
                           <TableCell>{player.name}</TableCell>
                           <TableCell className="text-right font-semibold">
-                            {player.goals + player.assists}
+                            {player.points}
                           </TableCell>
                           <TableCell className="text-right font-semibold">{player.goals}</TableCell>
                           <TableCell className="text-right">{player.assists}</TableCell>
-                          <TableCell className="text-right">{player.penaltyMins}</TableCell>
-                          <TableCell className="text-right">{player.matches}</TableCell>
+                          <TableCell className="text-right">{player.penalty_minutes}</TableCell>
                         </TableRow>
                       ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
                         Ingen statistik tillgänglig ännu
                       </TableCell>
                     </TableRow>

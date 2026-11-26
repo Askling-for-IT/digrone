@@ -37,11 +37,12 @@ export const fetchPowerCupPlayers = async (): Promise<Player[]> => {
   return response.json();
 };
 
+// Kept for the legacy admin screen until its write flow moves to the API.
 export const fetchMatches = async (): Promise<Match[]> => {
-  const url = isDevelopment 
+  const url = isDevelopment
     ? `${import.meta.env.BASE_URL}data/matches.json`
     : `${RAW_URL}/${GITHUB_CONFIG.dataPath}/matches.json`;
-  
+
   const response = await fetch(url);
   if (!response.ok) return [];
   return response.json();

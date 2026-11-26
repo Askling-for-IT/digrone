@@ -66,4 +66,5 @@ This application uses React Router for navigation and TanStack Query for data ma
 
 GitHub Pages builds the frontend from `frontend/` and deploys `frontend/dist/`.
 The Go backend foundation is available; see [backend setup](backend/README.md).
-The frontend continues to use JSON storage until API integration is implemented.
+The homepage and statistics page read from the Go API. The admin and cup pages
+continue using the existing JSON/GitHub storage until their integration is complete.
