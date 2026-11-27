@@ -1,0 +1,23 @@
+# Mount this in the existing shared proxy container, preserving its /srv
+# build, backend routing, Keycloak routing, and certificate volumes.
+{$CADDY_DOMAIN} {
+	root * /srv
+
+	handle_path /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle_path /keycloak/* {
+		reverse_proxy keycloak:8080
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# digröne.se (ASCII hostname for DNS, certificates, and OIDC).
+xn--digrne-zxa.se {
+	reverse_proxy digrone-frontend:80
+}
