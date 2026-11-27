@@ -1,5 +1,5 @@
 export const GITHUB_CONFIG = {
-    owner: "Setorator",
+    owner: "Askling-for-IT",
     repo: "digrone",
     branch: "main",
     dataPath: "frontend/public/data"

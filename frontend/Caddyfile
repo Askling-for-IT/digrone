@@ -1,0 +1,13 @@
+:80 {
+	root * /srv
+
+	@backend path /api /api/* /auth /auth/* /health /db-health /version
+	handle @backend {
+		reverse_proxy digrone-backend:8080
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

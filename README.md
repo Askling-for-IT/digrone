@@ -64,7 +64,7 @@ The frontend and backend will manage their dependencies and configuration separa
 
 This application uses React Router for navigation and TanStack Query for data management. The UI is built with shadcn-ui components and styled with Tailwind CSS.
 
-GitHub Pages builds the frontend from `frontend/` and deploys `frontend/dist/`.
+GitHub Actions publishes frontend/backend Docker images to GHCR. See [production deployment](deploy/README.md).
 The homepage and statistics page read exclusively from the Go API; see
 [backend setup](backend/README.md). Statistics currently combine all seasons and
 tournaments. Separate cup pages have been removed, and their old URLs redirect

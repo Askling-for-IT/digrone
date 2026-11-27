@@ -28,3 +28,6 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 backend/bin/
+deploy/.env
+deploy/.env.*
+!deploy/.env.example

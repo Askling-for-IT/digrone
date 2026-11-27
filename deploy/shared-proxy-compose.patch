@@ -1,0 +1,9 @@
+--- docker-compose.yml
++++ docker-compose.yml
+@@ -91,6 +91,7 @@
+       - "80:80"
+       - "443:443"
+     volumes:
++      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+       - caddy_data:/data
+       - caddy_config:/config

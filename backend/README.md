@@ -1,7 +1,6 @@
 # Backend
 
-Go API using chi, pgx connection pooling, and PostgreSQL. Its structure follows
-`twogo`: configuration → router → handlers → store → database.
+Go API using chi, pgx connection pooling, and PostgreSQL. Its structure is: configuration → router → handlers → store → database.
 
 ## Run locally
 
@@ -75,9 +74,9 @@ HTTP shutdown before the pool closes.
 ## Migrations
 
 SQL files in `internal/db/migrations/` are embedded in the API binary and applied
-on startup with `golang-migrate`, as in twogo. Its `schema_migrations` table tracks
+on startup with `golang-migrate`. Its `schema_migrations` table tracks
 the version and dirty state; starting the API again skips applied migrations.
-Application tables will use PostgreSQL's existing `public` schema, like twogo.
+Application tables will use PostgreSQL's existing `public` schema.
 The initial migration records a baseline without creating application tables.
 `000002_sessions` adds application sessions. `000003_players_matches_events`
 adds players, matches, and statistics/fine events. `000004_event_match_links`
@@ -427,7 +426,3 @@ payments and credits, and recalculation after event edits/deletions or match
 status changes. That database and temporary test file were removed afterward.
 No test files are kept in the repository. A real-server login still requires the
 Keycloak realm and client configuration above.
-
-Historical import, frontend API integration, and server deployment are subsequent
-steps. The frontend homepage and statistics page use the API; the admin and cup pages
-continue using their existing storage.
